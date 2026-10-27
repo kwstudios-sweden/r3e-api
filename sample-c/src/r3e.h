@@ -18,7 +18,7 @@ enum
 enum
 {
     // Minor version number to test against
-    R3E_VERSION_MINOR = 5
+    R3E_VERSION_MINOR = 6
 };
 
 enum
@@ -70,6 +70,28 @@ typedef enum
     // End of session
     R3E_SESSION_PHASE_CHECKERED = 6,
 } r3e_session_phase;
+
+typedef enum
+{
+    R3E_START_MODE_UNAVAILABLE = -1,
+    R3E_START_MODE_STANDING = 0,
+    R3E_START_MODE_ROLLING = 1,
+    R3E_START_MODE_FORMATION = 2,
+} r3e_start_mode;
+
+typedef enum
+{
+    R3E_START_PHASE_UNAVAILABLE = -1,
+
+    // Waiting for the car's own start group: on the grid, on the formation lap or rolling to the line
+    R3E_START_PHASE_WAITING = 0,
+
+    // The car's start group leader is in the start corridor, the group's green is imminent
+    R3E_START_PHASE_CORRIDOR = 1,
+
+    // The car's start group has gone green
+    R3E_START_PHASE_GREEN = 2,
+} r3e_start_phase;
 
 typedef enum
 {
@@ -328,6 +350,9 @@ typedef struct
 
     // Total steering force coming through steering bars
     r3e_float64 steering_force;
+    // Force feedback output before the maximum-force clamp, as the in-game FFB graph plots it:
+    // +/-1.0 = device full scale, beyond that the wheel clips. Same sign as steering_force.
+    // Without a force feedback wheel: steering_force * car FFB multiplier / FFB steer force input max.
     r3e_float64 steering_force_percentage;
 	
     // Current engine torque
@@ -648,10 +673,15 @@ typedef struct
     // Orientation in Euler coordinates
     r3e_vec3_f32 orientation;
 
-	// Reserved data
-	r3e_float32 unused1;
-	r3e_float32 unused2;
-	r3e_float32 unused3;
+    // Race start group the car belongs to (staggered starts release groups separately)
+    // Note: 0-based, -1 = N/A (not a race session)
+    r3e_int32 start_group;
+    // Where the car is in its own start procedure
+    // Note: See the r3e_start_phase enum. A later start group can still be waiting while session_phase is already green
+    r3e_int32 start_phase;
+    // The car's slot in its start group's formation order (0 = group leader)
+    // Note: -1 = N/A or not in the formation order (e.g. pit lane start, retired)
+    r3e_int32 formation_slot;
 } r3e_driver_data;
 
 typedef struct
@@ -741,9 +771,12 @@ typedef struct
     // Server max incident points, -1 = N/A
     r3e_int32 max_incident_points;
 
-    // Reserved data
-	r3e_float32 event_unused1;
-    r3e_float32 event_unused2;
+    // How the race is started
+    // Note: See the r3e_start_mode enum, -1 = N/A (not a race session)
+    r3e_int32 start_mode;
+    // Number of race start groups released separately (1 = single start)
+    // Note: -1 = N/A (not a race session)
+    r3e_int32 start_group_count;
 
     //////////////////////////////////////////////////////////////////////////
     // Pit
@@ -1090,6 +1123,32 @@ typedef struct
 
     // Contains name and basic vehicle info for all drivers in place order
     r3e_driver_data all_drivers_data_1[R3E_NUM_DRIVERS_MAX];
+
+    //////////////////////////////////////////////////////////////////////////
+    // Start procedure (current vehicle), added in 3.6
+    // Note: All -1 = N/A unless the current vehicle is waiting for its start group's green
+    //////////////////////////////////////////////////////////////////////////
+
+    // Speed the current vehicle should hold. For the start group leader this is the leader's speed limit
+    // Unit: Meter per second (m/s)
+    r3e_float32 formation_speed_limit;
+    // Below this speed the start group leader counts as too slow (leader only)
+    // Unit: Meter per second (m/s)
+    r3e_float32 formation_pace_floor;
+    // Lap distance where the start corridor begins
+    // Unit: Meters (m)
+    r3e_float32 start_corridor_lap_distance;
+    // Side of the track the current vehicle should keep (0 = left, 1 = right)
+    r3e_int32 formation_side;
+    // Slot id of the car the current vehicle should follow (-1 = none, e.g. start group leader)
+    // Note: Matches driver_info.slot_id in all_drivers_data_1
+    r3e_int32 formation_follow_slot_id;
+    // Time left until the current vehicle may leave the pit lane after a delayed pit lane start
+    // Unit: Seconds
+    r3e_float32 pitlane_start_delay_remaining;
+    // Start offence recorded against the current vehicle, penalised when its start group goes green
+    // Note: 0 = none, 1 = jumped the start, 2 = wrong side of the track
+    r3e_int32 start_penalty_pending;
 } r3e_shared;
 
 #pragma pack(pop)

@@ -16,7 +16,7 @@ namespace R3E
         enum VersionMinor
         {
             // Minor version number to test against
-            R3E_VERSION_MINOR = 5
+            R3E_VERSION_MINOR = 6
         };
         
         enum GameMode
@@ -62,6 +62,28 @@ namespace R3E
 
             // End of session
             Checkered = 6,
+        };
+
+        enum StartMode
+        {
+            Unavailable = -1,
+            Standing = 0,
+            Rolling = 1,
+            Formation = 2,
+        };
+
+        enum StartPhase
+        {
+            Unavailable = -1,
+
+            // Waiting for the car's own start group: on the grid, on the formation lap or rolling to the line
+            Waiting = 0,
+
+            // The car's start group leader is in the start corridor, the group's green is imminent
+            Corridor = 1,
+
+            // The car's start group has gone green
+            Green = 2,
         };
 
         enum Control
@@ -307,6 +329,9 @@ namespace R3E
 
             // Total steering force coming through steering bars
             public Double SteeringForce;
+            // Force feedback output before the maximum-force clamp, as the in-game FFB graph plots it:
+            // +/-1.0 = device full scale, beyond that the wheel clips. Same sign as SteeringForce.
+            // Without a force feedback wheel: SteeringForce * car FFB multiplier / FFB steer force input max.
             public Double SteeringForcePercentage;
 
             // Current engine torque
@@ -696,10 +721,15 @@ namespace R3E
             // Unit: Euler angles
             public Vector3<Single> Orientation;
 
-            // Reserved data
-            public Single Unused1;
-            public Single Unused2;
-            public Single Unused3;
+            // Race start group the car belongs to (staggered starts release groups separately)
+            // Note: 0-based, -1 = N/A (not a race session)
+            public Int32 StartGroup;
+            // Where the car is in its own start procedure
+            // Note: See the R3E.Constant.StartPhase enum. A later start group can still be waiting while SessionPhase is already green
+            public Int32 StartPhase;
+            // The car's slot in its start group's formation order (0 = group leader)
+            // Note: -1 = N/A or not in the formation order (e.g. pit lane start, retired)
+            public Int32 FormationSlot;
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -808,9 +838,12 @@ namespace R3E
             // Server max incident points, -1 = N/A
             public Int32 MaxIncidentPoints;
 
-            // Reserved data
-            public Single EventUnused1;
-            public Single EventUnused2;
+            // How the race is started
+            // Note: See the R3E.Constant.StartMode enum, -1 = N/A (not a race session)
+            public Int32 StartMode;
+            // Number of race start groups released separately (1 = single start)
+            // Note: -1 = N/A (not a race session)
+            public Int32 StartGroupCount;
 
             //////////////////////////////////////////////////////////////////////////
             // Pit
@@ -1155,6 +1188,32 @@ namespace R3E
             // Contains name and basic vehicle info for all drivers in place order
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 128)]
             public DriverData[] DriverData;
+
+            //////////////////////////////////////////////////////////////////////////
+            // Start procedure (current vehicle), added in 3.6
+            // Note: All -1 = N/A unless the current vehicle is waiting for its start group's green
+            //////////////////////////////////////////////////////////////////////////
+
+            // Speed the current vehicle should hold. For the start group leader this is the leader's speed limit
+            // Unit: Meter per second (m/s)
+            public Single FormationSpeedLimit;
+            // Below this speed the start group leader counts as too slow (leader only)
+            // Unit: Meter per second (m/s)
+            public Single FormationPaceFloor;
+            // Lap distance where the start corridor begins
+            // Unit: Meters (m)
+            public Single StartCorridorLapDistance;
+            // Side of the track the current vehicle should keep (0 = left, 1 = right)
+            public Int32 FormationSide;
+            // Slot id of the car the current vehicle should follow (-1 = none, e.g. start group leader)
+            // Note: Matches DriverInfo.SlotId in DriverData
+            public Int32 FormationFollowSlotId;
+            // Time left until the current vehicle may leave the pit lane after a delayed pit lane start
+            // Unit: Seconds
+            public Single PitlaneStartDelayRemaining;
+            // Start offence recorded against the current vehicle, penalised when its start group goes green
+            // Note: 0 = none, 1 = jumped the start, 2 = wrong side of the track
+            public Int32 StartPenaltyPending;
         }
     }
 }
